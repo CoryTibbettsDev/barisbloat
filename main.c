@@ -1,20 +1,24 @@
-#define _POSIX_C_SOURCE 200809L
+/* See LICENSE for copyright and license details. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
-#include <getopt.h>
 #include <unistd.h>
 #include <signal.h>
 #include <time.h>
 #include <poll.h>
+#include <getopt.h>
+
+#ifdef __linux__
+#include <bsd/string.h>
+#endif
 
 #include <xcb/xcb.h>
 #include <xcb/xcb_atom.h>
 #include <xcb/xproto.h>
 #include <xcb/randr.h>
 
-#include "components.h"
+#include "config.h"
 
 typedef struct monitor_t {
 	char *name;
@@ -50,26 +54,45 @@ const char *atom_names[] = {
 	"_NET_WM_STRUT_PARTIAL",
 };
 
-char *program_name = "bloatbar";
 static xcb_connection_t *connection;
 static xcb_screen_t *screen;
 static monitor_t *monhead, *montail;
 static font_t chosen_font;
 int bar_height = 30;
 
+char *
+get_date_time_string(void)
+{
+	time_t t = time(NULL);
+	char *time_now = ctime(&t);
+	return time_now;
+}
+
+char *
+update_text(void)
+{
+	char *dt = get_date_time_string();
+	char *text = malloc(strlen(dt));
+
+	strlcpy(text, dt, strlen(dt));
+	return text;
+}
+
 static void
-testCookie (xcb_void_cookie_t cookie,
-	xcb_connection_t *connection,
+test_cookie (xcb_void_cookie_t cookie,
+	xcb_connection_t *c,
 	char *errMessage)
 {
-	xcb_generic_error_t *error = xcb_request_check(connection, cookie);
+	xcb_generic_error_t *error = xcb_request_check(c, cookie);
 	if (error) {
 		fprintf (stderr, "ERROR: %s: %"PRIu8"\n", errMessage, error->error_code);
-		xcb_disconnect(connection);
+		xcb_disconnect(c);
 		exit (-1);
 	}
 }
 
+// https://www.x.org/releases/X11R7.7/doc/xorg-docs/fonts/fonts.html
+// https://www.x.org/wiki/guide/fonts/
 void
 load_font(char *font_name)
 {
@@ -80,14 +103,13 @@ load_font(char *font_name)
     xcb_void_cookie_t font_cookie;
     xcb_font_t font;
 
-
 	font = xcb_generate_id(connection);
 	font_cookie = xcb_open_font_checked(connection,
 			font,
 			strlen(font_name),
 			font_name);
 
-	testCookie(font_cookie, connection, "can't open font");
+	test_cookie(font_cookie, connection, "can't open font");
 
 	font_query = xcb_query_font(connection, font);
 	font_info = xcb_query_font_reply(connection, font_query, NULL);
@@ -101,7 +123,7 @@ load_font(char *font_name)
 }
 
 static xcb_gc_t
-getFontGC (xcb_connection_t *c,
+get_font_gc(xcb_connection_t *c,
 	xcb_screen_t *screen,
 	xcb_window_t window,
 	xcb_font_t f)
@@ -110,9 +132,7 @@ getFontGC (xcb_connection_t *c,
 	xcb_gcontext_t gc = xcb_generate_id(c);
 	uint32_t mask = XCB_GC_FOREGROUND | XCB_GC_BACKGROUND | XCB_GC_FONT;
 	uint32_t value_list[3] = {
-		screen->white_pixel,
-		screen->black_pixel,
-		f};
+		screen->white_pixel, screen->black_pixel, f };
 
 	xcb_void_cookie_t gcCookie = xcb_create_gc_checked(c,
 		gc,
@@ -120,7 +140,7 @@ getFontGC (xcb_connection_t *c,
 		mask,
 		value_list);
 
-	testCookie(gcCookie, c, "can't create gc");
+	test_cookie(gcCookie, c, "can't create gc");
 
 	return gc;
 }
@@ -132,7 +152,7 @@ drawText(xcb_window_t window,
 	const char *text)
 {
 	/* get graphics context */
-	xcb_gcontext_t gc = getFontGC(connection, screen, window, chosen_font.font);
+	xcb_gcontext_t gc = get_font_gc(connection, screen, window, chosen_font.font);
 
 	/* draw the text */
 	xcb_void_cookie_t textCookie = xcb_image_text_8_checked(connection,
@@ -142,12 +162,12 @@ drawText(xcb_window_t window,
 		x1, y1,
 		text);
 
-	testCookie(textCookie, connection, "can't paste text");
+	test_cookie(textCookie, connection, "can't paste text");
 
 	/* free the gc */
-	xcb_void_cookie_t gcCookie = xcb_free_gc (connection, gc);
+	xcb_void_cookie_t gcCookie = xcb_free_gc(connection, gc);
 
-	testCookie(gcCookie, connection, "can't free gc");
+	test_cookie(gcCookie, connection, "can't free gc");
 }
 
 // Add monitor to linked list of monitors
@@ -178,7 +198,7 @@ configure_monitors(void)
 		values[1] = XCB_EVENT_MASK_EXPOSURE;
 
 		// Create window and set properties
-		xcb_void_cookie_t windowCookie = xcb_create_window_checked (connection, /* Connection */
+		xcb_void_cookie_t windowCookie = xcb_create_window_checked(connection, /* Connection */
 			screen->root_depth, /* depth (same as root)*/
 			mon->window, /* window Id */
 			screen->root, /* parent window */
@@ -188,11 +208,11 @@ configure_monitors(void)
 			XCB_WINDOW_CLASS_INPUT_OUTPUT, /* class */
 			screen->root_visual, /* visual */
 			masks, values); /* properties of window and their values */
-		testCookie(windowCookie, connection, "can't create window");
+		test_cookie(windowCookie, connection, "can't create window");
 
 		// Show window, seems it needs to be done before drawing/changing other properties
 		xcb_void_cookie_t mapCookie = xcb_map_window (connection, mon->window);
-		testCookie(mapCookie, connection, "can't map window");
+		test_cookie(mapCookie, connection, "can't map window");
 
 		// Stut tells window manager to reserve room for our bar
 		int strut[4] = {0};
@@ -265,12 +285,12 @@ configure_monitors(void)
 				XCB_ATOM_WM_NAME,
 				XCB_ATOM_STRING,
 				8,
-				strlen(program_name),
-				program_name);
+				strlen(PROGRAMNAME),
+				PROGRAMNAME);
 
 		// Make sure window is in right place
-		// Some wms (openbox, awesome others?) ignore x,y
-		// from xcb_create_window 
+		// Some wms (openbox, awesome others?)
+		// fignore or dont't handle? x,y rom xcb_create_window 
 		xcb_configure_window(connection, mon->window,
 				XCB_CONFIG_WINDOW_X |
 				XCB_CONFIG_WINDOW_Y,
@@ -280,19 +300,20 @@ configure_monitors(void)
 }
 
 void
-update_monitor(monitor_t *mon, char *text)
+update_monitor(monitor_t *m, char *text)
 {
 	// Get window geometty
 	xcb_get_geometry_cookie_t geoCookie;
 	xcb_get_geometry_reply_t *reply;
-	geoCookie = xcb_get_geometry(connection, mon->window);
+	geoCookie = xcb_get_geometry(connection, m->window);
 	reply = xcb_get_geometry_reply(connection, geoCookie, NULL);
 
-	if (!reply)
+	if (!reply) {
 		fprintf(stderr, "Couldn't get geometry of window\n");
+		exit(-1);
+	}
 
-
-	drawText(mon->window,
+	drawText(m->window,
 			reply->width - strlen(text) * chosen_font.width,
 			reply->height/2 + chosen_font.height/2,
 			text);
@@ -300,13 +321,9 @@ update_monitor(monitor_t *mon, char *text)
     free(reply);
 }
 
-static int counter = 0;
 void
 update_monitors(void)
 {
-	counter++;
-	printf("draws: %d\n", counter);
-
 	char *text = update_text();
     for (monitor_t *m = monhead; m; m = m->next) {
 		update_monitor(m, text);
@@ -334,20 +351,20 @@ get_randr_monitors(void)
 		xcb_randr_get_crtc_info_reply_t *crtc = xcb_randr_get_crtc_info_reply(connection,
 				xcb_randr_get_crtc_info(connection, output->crtc, timestamp), NULL);
 
-		monitor_t *mon;
-		mon = calloc(1, sizeof(monitor_t));
-		if (!mon) {
+		monitor_t *m;
+		m = calloc(1, sizeof(monitor_t));
+		if (!m) {
 			fprintf(stderr, "Failed to allocate new monitor\n");
 			exit(EXIT_FAILURE);
 		}
-		mon->x = crtc->x;
-		mon->y = crtc->y;
-		mon->width = crtc->width;
-		mon->height = crtc->height;
-		mon->window = xcb_generate_id(connection);
-		mon->next = mon->prev = NULL;
+		m->x = crtc->x;
+		m->y = crtc->y;
+		m->width = crtc->width;
+		m->height = crtc->height;
+		m->window = xcb_generate_id(connection);
+		m->next = m->prev = NULL;
 
-		add_monitor(mon);
+		add_monitor(m);
 
 		free(crtc);
 		free(output);
@@ -361,7 +378,6 @@ event_loop(void)
 {
     xcb_generic_event_t *event;
 	// Loop delay time in milliseconds
-	int timeout = 1000;
     struct pollfd fds[1] = {
         { .fd = -1, .events = POLLIN },
     };
@@ -383,8 +399,14 @@ event_loop(void)
 				switch (event->response_type & ~0x80) {
 					case XCB_EXPOSE: {
 						xcb_expose_event_t *expose = (xcb_expose_event_t *)event;
-						drawText(expose->window, 10, expose->height - 10, "hello");
-						printf("expose\n");
+						/* Find which monitor the window is on then update */
+						for (monitor_t *m = monhead; m; m = m->next) {
+							if (m->window == expose->window) {
+								char *text = update_text();
+								update_monitor(m, text);
+								free(text);
+							}
+						}
 						break;
 					}
 					default: {
@@ -401,7 +423,7 @@ event_loop(void)
 }
 
 void
-sighandle (int signal)
+sighandle(int signal)
 {
     if (signal == SIGINT || signal == SIGTERM)
         exit(EXIT_SUCCESS);
@@ -411,7 +433,7 @@ void
 cleanup(void)
 {
 	xcb_void_cookie_t fontCookie = xcb_close_font_checked(connection, chosen_font.font);
-	testCookie(fontCookie, connection, "can't close chosen_font font");
+	test_cookie(fontCookie, connection, "can't close chosen_font font");
 
     while (monhead) {
         monitor_t *next = monhead->next;
@@ -419,6 +441,7 @@ cleanup(void)
         free(monhead);
         monhead = next;
     }
+	xcb_disconnect(connection);
 }
 
 
@@ -435,13 +458,13 @@ main (int argc, char *argv[])
     while ( (opt = getopt(argc, argv, ":hvo:f:")) != -1 ) {
         switch (opt) {
             case 'h':
-                printf ("bloatbar version %s\n", VERSION);
+                printf ("%s version %s\n", PROGRAMNAME, VERSION);
                 printf ("usage: %s [-h | -v]\n"
                         "\t-h Show this help and exit\n"
                         "\t-v Show version and exit\n", argv[0]);
                 exit (EXIT_SUCCESS);
             case 'v':
-                printf ("bloatbar version %s\n", VERSION);
+                printf ("%s version %s\n", PROGRAMNAME, VERSION);
 				exit (EXIT_SUCCESS);
 			case 'o': 
                 printf("option: %c\n", opt); 
@@ -476,13 +499,13 @@ main (int argc, char *argv[])
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator (setup);
 	// Find screen at index number of iterator
 	for (int i = 0; i < screenNum; i++) {
-		xcb_screen_next (&iter);
+		xcb_screen_next(&iter);
 	}
 
 	screen = iter.data;
 	if (!screen) {
 		fprintf(stderr, "ERROR: can't get screen\n");
-		xcb_disconnect (connection);
+		xcb_disconnect(connection);
 		return -1;
 	}
 
@@ -490,11 +513,9 @@ main (int argc, char *argv[])
 
 	configure_monitors();
 
-	load_font("-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1");
+	load_font(userfont);
 
 	event_loop();
-
-	xcb_disconnect(connection);
 
 	exit(EXIT_SUCCESS);
 	return 0;
