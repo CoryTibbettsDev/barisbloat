@@ -7,7 +7,6 @@
 #include <signal.h>
 #include <time.h>
 #include <poll.h>
-#include <getopt.h>
 
 #ifdef __linux__
 #include <bsd/string.h>
@@ -15,7 +14,6 @@
 
 #include <xcb/xcb.h>
 #include <xcb/xcb_atom.h>
-#include <xcb/xproto.h>
 #include <xcb/randr.h>
 
 #include "config.h"
@@ -32,8 +30,8 @@ typedef struct font_t {
 	char *font_name;
     xcb_font_t font;
     int descent, height, width;
-    uint16_t char_max;
-    uint16_t char_min;
+    uint32_t char_max;
+    uint32_t char_min;
     xcb_charinfo_t *width_lut;
 } font_t;
 
@@ -94,7 +92,7 @@ test_cookie (xcb_void_cookie_t cookie,
 // https://www.x.org/releases/X11R7.7/doc/xorg-docs/fonts/fonts.html
 // https://www.x.org/wiki/guide/fonts/
 void
-load_font(char *font_name)
+load_font(xcb_connection_t *c, char *font_name)
 {
 	// Old font systems for X is weird
 	// https://wiki.archlinux.org/index.php/X_Logical_Font_Description#Font_names
@@ -103,28 +101,28 @@ load_font(char *font_name)
     xcb_void_cookie_t font_cookie;
     xcb_font_t font;
 
-	font = xcb_generate_id(connection);
-	font_cookie = xcb_open_font_checked(connection,
+	font = xcb_generate_id(c);
+	font_cookie = xcb_open_font_checked(c,
 			font,
 			strlen(font_name),
 			font_name);
 
-	test_cookie(font_cookie, connection, "can't open font");
+	test_cookie(font_cookie, c, "can't open font");
 
-	font_query = xcb_query_font(connection, font);
-	font_info = xcb_query_font_reply(connection, font_query, NULL);
+	font_query = xcb_query_font(c, font);
+	font_info = xcb_query_font_reply(c, font_query, NULL);
 
 	chosen_font.font_name = font_name;
 	chosen_font.font = font;
 	chosen_font.descent = font_info->font_descent;
-	chosen_font.height = font_info->font_descent + font_info->font_descent;
+	chosen_font.height = font_info->font_ascent + font_info->font_descent;
 	chosen_font.width = font_info->max_bounds.character_width;
 	free(font_info);
 }
 
 static xcb_gc_t
 get_font_gc(xcb_connection_t *c,
-	xcb_screen_t *screen,
+	xcb_screen_t *s,
 	xcb_window_t window,
 	xcb_font_t f)
 {
@@ -132,7 +130,7 @@ get_font_gc(xcb_connection_t *c,
 	xcb_gcontext_t gc = xcb_generate_id(c);
 	uint32_t mask = XCB_GC_FOREGROUND | XCB_GC_BACKGROUND | XCB_GC_FONT;
 	uint32_t value_list[3] = {
-		screen->white_pixel, screen->black_pixel, f };
+		s->white_pixel, s->black_pixel, f };
 
 	xcb_void_cookie_t gcCookie = xcb_create_gc_checked(c,
 		gc,
@@ -172,17 +170,17 @@ drawText(xcb_window_t window,
 
 // Add monitor to linked list of monitors
 void
-add_monitor(monitor_t *mon)
+add_monitor(monitor_t *m)
 {
 	if (!monhead) {
-		monhead = mon;
+		monhead = m;
 	} else if (!montail) {
-		montail = mon;
-		monhead->next = mon;
-		mon->prev = monhead;
+		montail = m;
+		monhead->next = m;
+		m->prev = monhead;
 	} else {
-		mon->prev = montail;
-		montail->next = mon;
+		m->prev = montail;
+		montail->next = m;
 		montail = montail->next;
 	}
 }
@@ -211,7 +209,7 @@ configure_monitors(void)
 		test_cookie(windowCookie, connection, "can't create window");
 
 		// Show window, seems it needs to be done before drawing/changing other properties
-		xcb_void_cookie_t mapCookie = xcb_map_window (connection, mon->window);
+		xcb_void_cookie_t mapCookie = xcb_map_window(connection, mon->window);
 		test_cookie(mapCookie, connection, "can't map window");
 
 		// Stut tells window manager to reserve room for our bar
@@ -433,7 +431,7 @@ void
 cleanup(void)
 {
 	xcb_void_cookie_t fontCookie = xcb_close_font_checked(connection, chosen_font.font);
-	test_cookie(fontCookie, connection, "can't close chosen_font font");
+	test_cookie(fontCookie, connection, "can't close chosen_font");
 
     while (monhead) {
         monitor_t *next = monhead->next;
@@ -452,51 +450,19 @@ main (int argc, char *argv[])
     signal(SIGINT, sighandle);
     signal(SIGTERM, sighandle);
 
-	// Options passed to program
-	// Using getopt.h
-	int opt;
-    while ( (opt = getopt(argc, argv, ":hvo:f:")) != -1 ) {
-        switch (opt) {
-            case 'h':
-                printf ("%s version %s\n", PROGRAMNAME, VERSION);
-                printf ("usage: %s [-h | -v]\n"
-                        "\t-h Show this help and exit\n"
-                        "\t-v Show version and exit\n", argv[0]);
-                exit (EXIT_SUCCESS);
-            case 'v':
-                printf ("%s version %s\n", PROGRAMNAME, VERSION);
-				exit (EXIT_SUCCESS);
-			case 'o': 
-                printf("option: %c\n", opt); 
-                break;
-			case 'f': 
-                printf("filename: %s\n", optarg); 
-                break;
-			case ':':
-				printf("option needs a value\n");
-				break;
-			case '?':
-				printf("unknown option: %c\n", optopt);
-				break;
-        }
-    }
-	for(; optind < argc; optind++) {
-		printf("extra arguments: %s\n", argv[optind]);
-	}
-
 	monhead = montail = NULL;
 
 	int screenNum;
 	/* Open the connection to the X server */
-	connection = xcb_connect (NULL, &screenNum);
+	connection = xcb_connect(NULL, &screenNum);
 	if (xcb_connection_has_error(connection)) {
 		fprintf(stderr, "Couldn't connect to X\n");
 		exit(EXIT_FAILURE);
 	}
 
 	// Get current screen
-	const xcb_setup_t *setup = xcb_get_setup (connection);
-	xcb_screen_iterator_t iter = xcb_setup_roots_iterator (setup);
+	const xcb_setup_t *setup = xcb_get_setup(connection);
+	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
 	// Find screen at index number of iterator
 	for (int i = 0; i < screenNum; i++) {
 		xcb_screen_next(&iter);
@@ -513,7 +479,7 @@ main (int argc, char *argv[])
 
 	configure_monitors();
 
-	load_font(userfont);
+	load_font(connection, font);
 
 	event_loop();
 
