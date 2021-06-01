@@ -1,10 +1,10 @@
-# barisbloat Makefile
+PROGRAMNAME = barisbloat
 VERSION = 0.1
-PROGRAMNAME=barisbloat
 
 # User compiled programs go in /usr/local/bin link below has good explination
 # https://unix.stackexchange.com/questions/8656/usr-bin-vs-usr-local-bin-on-linux
-DESTDIR = /usr/local/bin
+PREFIXDIR = /usr/local
+DESTDIR = $(PREFIXDIR)/bin
 
 CFLAGS = -std=c99 -Wall -pedantic -Wno-deprecated-declarations -Os ${CPPFLAGS}
 CPPFLAGS = -DPROGRAMNAME="\"$(PROGRAMNAME)\"" -DVERSION="\"$(VERSION)\""
@@ -31,6 +31,9 @@ all: ${EXEC}
 ${EXEC}: ${OBJ}
 	$(CC) -o $@ $< ${LDFLAGS}
 
+debug: CFLAGS += $(CFDEBUG)
+debug: all
+
 config:
 	cp config.def.h config.h
 
@@ -43,7 +46,6 @@ uninstall:
 	${RM} ${DESTDIR}/${EXEC}
 
 clean:
-	${RM} ${OBJ}
-	${RM} ${EXEC}
+	${RM} ${OBJ} ${EXEC}
 
 .PHONY: all clean options install uinstall

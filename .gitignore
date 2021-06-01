@@ -1,2 +1,4 @@
+*.o
+barisbloat
 config.h
 tags

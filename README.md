@@ -2,8 +2,13 @@
 A statusbar for the X windowing system using the XCB library
 
 # Dependencies
-- XCB
+Package Names Are From Arch Linux Repositories
+- freetype2
 - fontconfig
+- libxcb
+- xcb-util
+- xcb-util-renderutil
+- xcb-util-image
 On Linux
 - libbsd
 
