@@ -7,8 +7,6 @@ Package Names Are From Arch Linux Repositories
 - fontconfig
 - libxcb
 - xcb-util
-- xcb-util-renderutil
-- xcb-util-image
 On Linux
 - libbsd
 

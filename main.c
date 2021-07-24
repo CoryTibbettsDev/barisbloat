@@ -444,7 +444,7 @@ cleanup(void)
 
 
 int
-main (int argc, char *argv[])
+main(int argc, char **argv)
 {
 	atexit(cleanup);
     signal(SIGINT, sighandle);

@@ -1,51 +1,56 @@
-PROGRAMNAME = barisbloat
-VERSION = 0.1
+PROGRAMNAME := barisbloat
+VERSION ?= $(shell git tag || printf "0.1")
+LONGVERSION ?= $(shell git describe --tags || printf "0.1")
+
+TARGETOS := $(shell uname -s)
+
+RM ?= rm -f
+CP ?= cp -f
 
 # User compiled programs go in /usr/local/bin link below has good explination
 # https://unix.stackexchange.com/questions/8656/usr-bin-vs-usr-local-bin-on-linux
-PREFIXDIR = /usr/local
-DESTDIR = $(PREFIXDIR)/bin
+PREFIX ?= /usr/local
+DEST ?= $(PREFIX)/bin
 
-CFLAGS = -std=c99 -Wall -pedantic -Wno-deprecated-declarations -Os ${CPPFLAGS}
-CPPFLAGS = -DPROGRAMNAME="\"$(PROGRAMNAME)\"" -DVERSION="\"$(VERSION)\""
+CFLAGS += -std=c99 -Wall
+CPPFLAGS += -DPROGRAMNAME="\"$(PROGRAMNAME)\"" -DVERSION="\"$(VERSION)\""
 # Extra flags for debugging
-CFDEBUG = -g -Wunused-parameter -Wlong-long -Wsign-conversion \
-		   -Wconversion -Wimplicit-function-declaration
+CFDEBUG = -g -pedantic -Wno-deprecated-declarations -Wunused-parameter -Wlong-long \
+		  -Wsign-conversion -Wconversion -Wimplicit-function-declaration
 # Included libraries
-LDFLAGS = -lc -lxcb -lxcb-randr# -lxcb-xinerama
+LDFLAGS += -lc -lxcb -lxcb-util -lxcb-randr# -lxcb-xinerama
 # If Linux we add bsd c standard library
-TARGETOS = $(shell uname -s)
 ifeq ($(TARGETOS),Linux)
 	LDFLAGS += -lbsd
 endif
 
-EXEC = ${PROGRAMNAME}
-SRC = main.c
-OBJ = ${SRC:.c=.o}
+EXEC := $(PROGRAMNAME)
+SRC := main.c
+OBJ := $(SRC:.c=.o)
+
+.PHONY: all clean install uninstall
 
 all: ${EXEC}
 
-.c.o:
-	${CC} -c ${CFLAGS} $<
+%.o: %.c
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) $< -o $@
 
 ${EXEC}: ${OBJ}
-	$(CC) -o $@ $< ${LDFLAGS}
+	$(CC) ${LDFLAGS} -o $@ $<
 
-debug: CFLAGS += $(CFDEBUG)
-debug: all
+test: CFLAGS += $(CFDEBUG)
+test: all
 
 config:
-	cp config.def.h config.h
+	$(CP) config.def.h config.h
 
 install: all
-	mkdir -p ${DESTDIR}
-	cp -f ${EXEC} ${DESTDIR}
-	chmod 755 ${DESTDIR}/${EXEC}
+	mkdir -p ${DEST}
+	cp -f ${EXEC} ${DEST}
+	chmod 755 ${DEST}/${EXEC}
 
 uninstall:
-	${RM} ${DESTDIR}/${EXEC}
+	${RM} ${DEST}/${EXEC}
 
 clean:
 	${RM} ${OBJ} ${EXEC}
-
-.PHONY: all clean options install uinstall
