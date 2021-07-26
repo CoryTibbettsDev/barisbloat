@@ -10,7 +10,7 @@ CP ?= cp -f
 # User compiled programs go in /usr/local/bin link below has good explination
 # https://unix.stackexchange.com/questions/8656/usr-bin-vs-usr-local-bin-on-linux
 PREFIX ?= /usr/local
-DEST ?= $(PREFIX)/bin
+DESTDIR ?= $(PREFIX)/bin
 
 CFLAGS += -std=c99 -Wall
 CPPFLAGS += -DPROGRAMNAME="\"$(PROGRAMNAME)\"" -DVERSION="\"$(VERSION)\""
@@ -45,12 +45,12 @@ config:
 	$(CP) config.def.h config.h
 
 install: all
-	mkdir -p ${DEST}
-	cp -f ${EXEC} ${DEST}
-	chmod 755 ${DEST}/${EXEC}
+	mkdir -p ${DESTDIR}
+	cp -f ${EXEC} ${DESTDIR}
+	chmod 755 ${DESTDIR}/${EXEC}
 
 uninstall:
-	${RM} ${DEST}/${EXEC}
+	${RM} ${DESTDIR}/${EXEC}
 
 clean:
 	${RM} ${OBJ} ${EXEC}
