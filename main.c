@@ -8,10 +8,6 @@
 #include <time.h>
 #include <poll.h>
 
-#ifdef __linux__
-#include <bsd/string.h>
-#endif
-
 #include <xcb/xcb.h>
 #include <xcb/xcb_atom.h>
 #include <xcb/randr.h>
@@ -72,7 +68,7 @@ update_text(void)
 	char *dt = get_date_time_string();
 	char *text = malloc(strlen(dt));
 
-	strlcpy(text, dt, strlen(dt));
+	strncpy(text, dt, strlen(dt));
 	return text;
 }
 
@@ -85,7 +81,7 @@ test_cookie (xcb_void_cookie_t cookie,
 	if (error) {
 		fprintf (stderr, "ERROR: %s: %"PRIu8"\n", errMessage, error->error_code);
 		xcb_disconnect(c);
-		exit (-1);
+		exit(EXIT_FAILURE);
 	}
 }
 
@@ -283,12 +279,12 @@ configure_monitors(void)
 				XCB_ATOM_WM_NAME,
 				XCB_ATOM_STRING,
 				8,
-				strlen(PROGRAMNAME),
-				PROGRAMNAME);
+				strlen(PROG),
+				PROG);
 
 		// Make sure window is in right place
 		// Some wms (openbox, awesome others?)
-		// fignore or dont't handle? x,y rom xcb_create_window 
+		// ignore or dont't handle? x,y from xcb_create_window
 		xcb_configure_window(connection, mon->window,
 				XCB_CONFIG_WINDOW_X |
 				XCB_CONFIG_WINDOW_Y,
@@ -308,7 +304,7 @@ update_monitor(monitor_t *m, char *text)
 
 	if (!reply) {
 		fprintf(stderr, "Couldn't get geometry of window\n");
-		exit(-1);
+		exit(EXIT_FAILURE);
 	}
 
 	drawText(m->window,
@@ -433,12 +429,12 @@ cleanup(void)
 	xcb_void_cookie_t fontCookie = xcb_close_font_checked(connection, chosen_font.font);
 	test_cookie(fontCookie, connection, "can't close chosen_font");
 
-    while (monhead) {
-        monitor_t *next = monhead->next;
-        xcb_destroy_window(connection, monhead->window);
-        free(monhead);
-        monhead = next;
-    }
+	while (monhead) {
+		monitor_t *next = monhead->next;
+		xcb_destroy_window(connection, monhead->window);
+		free(monhead);
+		monhead = next;
+	}
 	xcb_disconnect(connection);
 }
 

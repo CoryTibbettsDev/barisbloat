@@ -1,42 +1,36 @@
-PROGRAMNAME := barisbloat
-VERSION ?= $(shell git tag || printf "0.1")
-LONGVERSION ?= $(shell git describe --tags || printf "0.1")
+# GNU Makefile
 
-TARGETOS := $(shell uname -s)
+# This makefile will likely not build when using a non GNU Make
 
-RM ?= rm -f
-CP ?= cp -f
+PROG := barisbloat
+VERSION ?= 0.1
 
-# User compiled programs go in /usr/local/bin link below has good explination
-# https://unix.stackexchange.com/questions/8656/usr-bin-vs-usr-local-bin-on-linux
+RM ?= rm -vf
+CP ?= cp -vf
+
 PREFIX ?= /usr/local
-DESTDIR ?= $(PREFIX)/bin
+DESTDIR ?=
 
-CFLAGS += -std=c99 -Wall
-CPPFLAGS += -DPROGRAMNAME="\"$(PROGRAMNAME)\"" -DVERSION="\"$(VERSION)\""
+CFLAGS += -Wall
+CPPFLAGS += -DPROG="\"$(PROG)\"" -DVERSION="\"$(VERSION)\""
 # Extra flags for debugging
 CFDEBUG = -g -pedantic -Wno-deprecated-declarations -Wunused-parameter -Wlong-long \
 		  -Wsign-conversion -Wconversion -Wimplicit-function-declaration
 # Included libraries
 LDFLAGS += -lc -lxcb -lxcb-util -lxcb-randr# -lxcb-xinerama
-# If Linux we add bsd c standard library
-ifeq ($(TARGETOS),Linux)
-	LDFLAGS += -lbsd
-endif
 
-EXEC := $(PROGRAMNAME)
 SRC := main.c
 OBJ := $(SRC:.c=.o)
 
 .PHONY: all clean install uninstall
 
-all: ${EXEC}
+all: $(PROG)
 
-%.o: %.c
-	$(CC) -c $(CFLAGS) $(CPPFLAGS) $< -o $@
+$(PROG): $(OBJ)
+	$(CC) $(LDFLAGS) $(OBJ) -o $(PROG)
 
-${EXEC}: ${OBJ}
-	$(CC) ${LDFLAGS} -o $@ $<
+$(OBJ): %.o: %.c
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) $<
 
 test: CFLAGS += $(CFDEBUG)
 test: all
@@ -45,12 +39,11 @@ config:
 	$(CP) config.def.h config.h
 
 install: all
-	mkdir -p ${DESTDIR}
-	cp -f ${EXEC} ${DESTDIR}
-	chmod 755 ${DESTDIR}/${EXEC}
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 0755 $(PROG) $(DESTDIR)$(PREFIX)/bin/$(PROG)
 
 uninstall:
-	${RM} ${DESTDIR}/${EXEC}
+	$(RM) $(DESTDIR)$(PREFIX)/bin/$(PROG)
 
 clean:
-	${RM} ${OBJ} ${EXEC}
+	$(RM) $(PROG) *.o
